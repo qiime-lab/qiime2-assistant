@@ -13,19 +13,58 @@ import streamlit as st
 DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "qiime2-manual", "docs")
 OLLAMA_URL = "http://localhost:11434"
 
+CUSTOM_CSS = """
+<style>
+    /* 🐱 Hide Streamlit default chrome */
+    #MainMenu, footer, header {visibility: hidden;}
 
-@st.cache_data
-def load_knowledge_base():
-    """Load all markdown docs from qiime2-manual/docs/ as knowledge base."""
-    docs = []
-    md_files = sorted(glob.glob(os.path.join(DOCS_DIR, "*.md")))
-    for filepath in md_files:
-        filename = os.path.basename(filepath)
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read()
-        docs.append(f"--- {filename} ---\n{content}")
-    return "\n\n".join(docs)
+    /* 🐱 Tighten top padding */
+    .block-container {padding-top: 2rem;}
 
+    /* 🐱 Welcome card styling */
+    .welcome {
+        text-align: center;
+        padding: 2rem 0 1rem;
+        color: #555;
+    }
+    .welcome h2 {
+        font-size: 1.4rem;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 0.3rem;
+    }
+    .welcome p {
+        font-size: 0.95rem;
+        color: #888;
+    }
+
+    /* 🐱 Example chips grid */
+    .example-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: center;
+        padding: 0.5rem 0 2rem;
+    }
+
+    /* 🐱 Sidebar minimal */
+    section[data-testid="stSidebar"] {
+        width: 260px !important;
+    }
+    section[data-testid="stSidebar"] .stSelectbox label {
+        font-size: 0.85rem;
+    }
+</style>
+"""
+
+EXAMPLES = [
+    "DADA2のパラメータの決め方は？",
+    "サンプリング深度はどう決める？",
+    "内部標準（IS）の除去手順を教えて",
+    "Rでphyloseqを使う方法は？",
+    "PERMANOVAの実行方法は？",
+    "分類器の作り方を教えて",
+]
 
 SYSTEM_PROMPT = """\
 あなたはQIIME 2による16S rRNAアンプリコン解析の専門アシスタントです。
@@ -42,6 +81,19 @@ SYSTEM_PROMPT = """\
 ## マニュアル内容
 {knowledge_base}
 """
+
+
+@st.cache_data
+def load_knowledge_base():
+    """Load all markdown docs from qiime2-manual/docs/ as knowledge base."""
+    docs = []
+    md_files = sorted(glob.glob(os.path.join(DOCS_DIR, "*.md")))
+    for filepath in md_files:
+        filename = os.path.basename(filepath)
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        docs.append(f"--- {filename} ---\n{content}")
+    return "\n\n".join(docs)
 
 
 def get_available_models():
@@ -78,47 +130,30 @@ def main():
     st.set_page_config(
         page_title="QIIME 2 Assistant",
         page_icon="🧬",
-        layout="wide",
+        layout="centered",
     )
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    st.title("🧬 QIIME 2 Assistant")
-    st.caption("QIIME 2 マニュアルに基づく対話式AIアシスタント（ローカル LLM）")
-
-    # 🐱 Sidebar for model selection
+    # 🐱 Minimal sidebar
     with st.sidebar:
-        st.header("設定")
+        st.markdown("#### Settings")
         models = get_available_models()
         if not models:
-            st.error("Ollama が起動していません。`ollama serve` を実行してください。")
+            st.error("Ollama が起動していません")
+            st.caption("`ollama serve` を実行してください")
             st.stop()
 
-        # 🐱 Prefer qwen2.5:7b > qwen2.5-coder:7b > first available
         default_idx = 0
         for preferred in ["qwen2.5:7b", "qwen2.5-coder:7b"]:
             if preferred in models:
                 default_idx = models.index(preferred)
                 break
 
-        model = st.selectbox("モデル", models, index=default_idx)
-        st.caption(f"Ollama ({OLLAMA_URL})")
+        model = st.selectbox("Model", models, index=default_idx, label_visibility="collapsed")
 
-        if st.button("会話をリセット"):
+        if st.button("Clear chat", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
-
-        st.divider()
-        st.markdown("### 質問の例")
-        examples = [
-            "DADA2のパラメータの決め方は？",
-            "サンプリング深度はどう決める？",
-            "内部標準（IS）の除去手順を教えて",
-            "Rでphyloseqを使う方法は？",
-            "PERMANOVAの実行方法は？",
-            "分類器の作り方を教えて",
-        ]
-        for ex in examples:
-            if st.button(ex, use_container_width=True):
-                st.session_state["prefill"] = ex
 
     # 🐱 Load knowledge base
     knowledge_base = load_knowledge_base()
@@ -127,24 +162,38 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # 🐱 Welcome screen (shown when no messages)
+    if not st.session_state.messages:
+        st.markdown(
+            '<div class="welcome">'
+            "<h2>QIIME 2 Assistant</h2>"
+            "<p>マニュアルに基づいてQIIME 2の疑問に回答します</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        cols = st.columns(2)
+        for i, ex in enumerate(EXAMPLES):
+            with cols[i % 2]:
+                if st.button(f"  {ex}", key=f"ex_{i}", use_container_width=True):
+                    st.session_state["prefill"] = ex
+                    st.rerun()
+
     # 🐱 Display chat history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # 🐱 Handle prefilled question from sidebar
+    # 🐱 Handle prefilled question
     prefill = st.session_state.pop("prefill", None)
-    prompt = st.chat_input("QIIME 2について質問してください...")
+    prompt = st.chat_input("質問を入力...")
     if prefill:
         prompt = prefill
 
     if prompt:
-        # 🐱 Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # 🐱 Generate response with streaming
         with st.chat_message("assistant"):
             api_messages = [
                 {"role": m["role"], "content": m["content"]}
